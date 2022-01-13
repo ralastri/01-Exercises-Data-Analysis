@@ -6,8 +6,8 @@ a
 b
 
 
-QCP4 <- function(x){
-    if(max(x, na.rm = T) >= 20000){
+QCP4 <- function(x, threshold){
+    if(max(x, na.rm = T) >= threshold){
         return(1)
       }
     else{
@@ -21,5 +21,13 @@ d <- c(0,0,0,1,0,0,0,1,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,0,0,0,0,0,3,0
 
 e <- c(0,0,0,1,0,0,0,1,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,0,0,0,0,0,3,0,0,0,0,0,3,3,3,0,0,0,0,0)
 e
-c <- rollapply(d, width = 3, FUN = QCP4, fill = NA)
+c <- rollapply(d, width = 3, FUN = QCP4, threshold = 20000, fill = NA, align = "center")
 c
+c <- rollapply(d, width = 7, FUN = QCP4, threshold = 50000, fill = NA, align = "center")
+c
+
+
+summary(data)
+
+data %>%
+  count(QCP1,QCP2,QCP3,QCP4)

@@ -21,22 +21,27 @@ Analysis based on this timeseries:
 <https://github.com/data-hydenv/data/blob/master/hobo/2022/10_minute/10347366.csv>
 
 ### Loaded packages
-tidyverse, lubridate, zoo, readr
+tidyverse, lubridate, hms, zoo, readr
 
 ```{r libraries, include=FALSE}
 library(tidyverse)
 library(lubridate)
 library(zoo)
 library(readr)
+library(hms)
 ```
 
 ### Preprocessing / R functions
 
 ```{r preprocessing_or_functions, message=FALSE, warning=FALSE}
-# If data preprocessing is needed, do it here.
-# If you have specific functions, placed them here.
-# If this code chunk is not needed, delete it.
-
+QCP4 <- function(x, threshold){
+    if(max(x, na.rm = T) >= threshold){
+        return(1)
+      }
+    else{
+        return(0)
+      }
+}
 ```
 
 ## 1. Quality control procedures (4 QCPs)
@@ -112,46 +117,82 @@ sum(data$QCP3, na.rm = T)
 ### 1.4 Light intensity
 
 ```{r qcp4}
-# classify data points by light intensity
+# classify data points by light intensity and period of the day (day/night)
 data <- data %>% 
   mutate(SIC = case_when(
-                lux >= 0 & lux <= 10 ~ "night",
-                lux >= 10 & lux <= 500 ~ "sunrise_sunset",
-                lux >= 500 & lux <= 2000 ~ "overcast_full",
-                lux >= 2000 & lux <= 15000 ~ "overcast_light",
-                lux >= 15000 & lux <= 20000 ~ "clear_sky",
-                lux >= 20000 & lux <= 50000 ~ "sunshine",
-                lux >= 50000 ~ "sunshine_bright",
+                lux >= 0 & lux <= 10 ~ "0_night",
+                lux >= 10 & lux <= 500 ~ "1_sunrise_sunset",
+                lux >= 500 & lux <= 2000 ~ "2_overcast_full",
+                lux >= 2000 & lux <= 15000 ~ "3_overcast_light",
+                lux >= 15000 & lux <= 20000 ~ "4_clear_sky",
+                lux >= 20000 & lux <= 50000 ~ "5_sunshine",
+                lux >= 50000 ~ "6_sunshine_bright",
                 TRUE ~ "NA"
-               )
+               ),
+         time = as_hms(dttm),
+         period = if_else(time >= as_hms("6:00:00") & time <= as_hms("17:59:59"), true = "day", false = "night")
          ) %>% 
+  relocate(time, period, .after = dttm) %>% 
   relocate(SIC, .after = lux)
 
-# 
+# Count observations within light intensity classes
 data %>% count(SIC)
+
+# Implement QCP 4 criterion: flag day time observations >20000 lux (i +- 1); >50000 (i +- 50000)
+data <- data %>%
+  mutate(QCP4_1 = if_else(period == "day", true = rollapply(lux, width = 3, FUN = QCP4, threshold = 20000, fill = NA, align = "center"), false = 0), 
+         QCP4_2 = if_else(period == "day", true = rollapply(lux, width = 7, FUN = QCP4, threshold = 50000, fill = NA, align = "center"), false = 0),
+         QCP4 = if_else(QCP4_1 + QCP4_2 > 0, true = 1, false = 0)) %>% 
+  select(-QCP4_1, -QCP4_2)
+
+# Visualize, when the QCP4 criterion fails (which times of day)
+data %>% 
+  filter(period == "day") %>% 
+  group_by(hour = hour(dttm)) %>% 
+  summarise(QCP4_Count = sum(QCP4))%>%
+  ggplot(aes(x = hour, y = QCP4_Count))+
+    geom_col()+
+    scale_x_continuous(breaks = seq(6,18, by = 1))+
+    xlab("Time")+
+    ylab("Count of QCP4 fails")
+
+# Calculate total number of fails
+data %>% 
+  count(QCP4)
 
 ```
 
 **Task**: Discuss shortly how often and when during daytime the QCP4 flags bad data. Elaborate on some reasons for your results.
 
-**Answer**:
+**Answer**: The QCP4 criterion fails mostly around noon (about 150 observations), but never before 9 am or after 3 pm. Over the whole time span 272 observations out of 4032 fail. 
 
 ## 2. Synthesis
 
 ```{r synthesis}
-# code for synthesis here
+# compare combinations of failures
+data %>%
+  count(QCP1,QCP2,QCP3,QCP4)
+
 ```
 
 **Task**: Present a table or graph to show how many data points fail during the four specific QCPs. Discuss shortly the reasons for failure and compare the different QCPs against each other.
 
-**Answer**:
+**Answer**: The above output shows, that 3662 10-min observations pass all 4 criteria. QCP1 was always passed, which was to be expected as the sensor only recorded values within its measurement range. QCP2 failed 232 times. QCP3 only failed 47 times. QCP4 failed 272 times, which is to be explained by the sensors position on a south facing wall.
 
 ## 3. Results
 
 ### 3.1 Result (Flagging system: 10-minutes-values)
 
 ```{r res1}
-# code for results here
+# create cumulated flags
+data <- data %>% 
+            mutate(QCP_cum = if_else(QCP1 + QCP2 + QCP3 + QCP4 > 0, true = 1, false = 0))
+
+# select required variables
+qc_df <- data %>% 
+            select(id, dttm, temp, lux, QCP1:QCP_cum)
+
+head(qc_df,100)
 ```
 
 **Task**: At the end of the code section above you should generate one! tibble or data.frame named `qc_df` with all time information, all data points (temperature and lux) and your outcomes of the different QCPs.
@@ -159,7 +200,18 @@ data %>% count(SIC)
 ### 3.2 Result (Aggregate to hourly series)
 
 ```{r res2}
-# code for results here
+# create qrouping variable
+qc_df <- qc_df %>% 
+            mutate(day_hour = ymd_h(format(dttm, format = "%Y-%m-%d %H")))
+
+# aggregate qc_df to hourly values (condition: not more than 1 QCP_cum failure per hour)
+hobo_hourly <- qc_df %>% 
+            group_by(day_hour) %>% 
+            summarise(temp = if_else(sum(QCP_cum, na.rm = T) <= 1, true = round(mean(temp), 4), false = NULL)) %>% 
+            rename(dttm = day_hour)
+
+head(hobo_hourly, 50)
+
 ```
 
 **Task**: At the end of the code section above you should generate one! tibble or data.frame named `hobo_hourly` with averaged temperature values per hour or NA values (if the hour is flagged as bad data). See exercise description for more details.

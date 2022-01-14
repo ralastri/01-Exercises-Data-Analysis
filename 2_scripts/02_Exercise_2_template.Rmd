@@ -93,7 +93,7 @@ data %>%
 
 **Answer**: 232 data points failed this quality criterion. 3799 passed. 1 value was assigned NA, due to it being the first point. The measurements that failed all occurred between 7 am and 6:10 pm. This might suggest that larger temperature increases or drops are influenced by sunlight. 
 
-### 1.3 Minimum variability (Persistence)
+### 1.3 Minimum variability (Persistence) QCP3
 
 To pass QCP3 a data point and its 5 previous measurements cannot have the same value. I.e. in any hour period there must be at least two different values measured.
 
@@ -118,7 +118,7 @@ sum(data$QCP3, na.rm = T)
 
 *Results:* The time series contains 47 periods of 6 continuous 10-minute intervals with the same value.
 
-### 1.4 Light intensity
+### 1.4 Light intensity - QCP4
 
 QCP4 requires all values that were measured while the sensor was in sunshine or bright sunshine to be flagged. 
 

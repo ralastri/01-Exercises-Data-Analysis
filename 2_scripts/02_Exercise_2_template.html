@@ -166,7 +166,7 @@ pre code {
 
 <h1 class="title toc-ignore">Exercise #2</h1>
 <h4 class="author">Raffaello Lastrico</h4>
-<h4 class="date">date of submission</h4>
+<h4 class="date">14.01.2022</h4>
 
 </div>
 
@@ -181,7 +181,8 @@ pre code {
 </div>
 <div id="preprocessing-r-functions" class="section level3">
 <h3>Preprocessing / R functions</h3>
-<pre class="r"><code>QCP4 &lt;- function(x, threshold){
+<pre class="r"><code># define function for use in QCP 4
+QCP4 &lt;- function(x, threshold){
     if(max(x, na.rm = T) &gt;= threshold){
         return(1)
       }
@@ -204,31 +205,33 @@ head(data)</code></pre>
 ## 4     4 2021-12-13 00:30:00  5.86     0
 ## 5     5 2021-12-13 00:40:00  5.86     0
 ## 6     6 2021-12-13 00:50:00  5.86     0</code></pre>
-<div id="measurement-range-plausible-values" class="section level3">
-<h3>1.1 Measurement range (Plausible values)</h3>
+<div id="measurement-range-plausible-values---qcp1" class="section level3">
+<h3>1.1 Measurement range (Plausible values) - QCP1</h3>
+<p>For QCP1 all measurements outside the sensor range will be flagged.</p>
 <p><strong>HOBO Specifications:</strong> Temperature: -20° to 70° C - Light intensity: 0 to 320000 lux</p>
-<pre class="r"><code># Flag values outside the ranges with 1, those within with 0 
+<pre class="r"><code># flag values outside the ranges with 1, those within with 0 
 data &lt;- data %&gt;% 
   mutate(QCP1 = case_when(temp &lt;= 70 &amp; temp &gt;= -20 &amp; lux &lt;= 320000 &amp; lux &gt;= 0 ~ 0,
                           TRUE ~ 1)
         )
 
+# calculate sum of QCP1
 sum(data$QCP1)</code></pre>
 <pre><code>## [1] 0</code></pre>
 <p><strong>Question</strong>: How many data points are outside the measurement range?</p>
 <p><strong>Answer</strong>: There are 0 data points outside the measurement range of both temperature and light intensity.</p>
 </div>
-<div id="plausible-rate-of-change" class="section level3">
-<h3>1.2 Plausible rate of change</h3>
-<pre class="r"><code># Calculate diference in temperature und flag those &gt; 1° C
+<div id="plausible-rate-of-change---qcp2" class="section level3">
+<h3>1.2 Plausible rate of change - QCP2</h3>
+<p>For QCP2 all data points with more than 1 °K change to the previous measurement are flagged.</p>
+<pre class="r"><code># calculate difference in temperature and flag those &gt; 1° C
 data &lt;- data %&gt;% 
-  #head() %&gt;% 
   mutate(var1 = temp - lag(x = temp), 
          QCP2 = if_else(abs(var1) &gt; 1, true = 1, false = 0)
          ) %&gt;% 
   select(-var1)
 
-# Summarise time and count information for QCP2 classification
+# summarise time and count information for QCP2 classification
 data %&gt;% 
   mutate(daytime = strftime(dttm, format=&quot;%H:%M:%S&quot;)) %&gt;% 
   group_by(QCP2) %&gt;% 
@@ -242,24 +245,29 @@ data %&gt;%
 <p><strong>Question</strong>: Describe shortly how many data points failed during this QCP and discuss whether there is a certain daytime pattern of failure or not?</p>
 <p><strong>Answer</strong>: 232 data points failed this quality criterion. 3799 passed. 1 value was assigned NA, due to it being the first point. The measurements that failed all occurred between 7 am and 6:10 pm. This might suggest that larger temperature increases or drops are influenced by sunlight.</p>
 </div>
-<div id="minimum-variability-persistence" class="section level3">
-<h3>1.3 Minimum variability (Persistence)</h3>
-<pre class="r"><code># code for qcp3 here
+<div id="minimum-variability-persistence-qcp3" class="section level3">
+<h3>1.3 Minimum variability (Persistence) QCP3</h3>
+<p>To pass QCP3 a data point and its 5 previous measurements cannot have the same value. I.e. in any hour period there must be at least two different values measured.</p>
+<pre class="r"><code># classify values by QCP3 
 data &lt;- data %&gt;%
   mutate(QCP3 = case_when(temp == lag(temp, n = 1) &amp; temp == lag(temp, n = 2) &amp; 
                           temp == lag(temp, n = 3) &amp; temp == lag(temp, n = 4) &amp;
                           temp == lag(temp, n = 5) ~ 1,
+                          is.na(lag(temp, n = 1)) | is.na(lag(temp, n = 2)) | 
+                          is.na(lag(temp, n = 3)) | is.na(lag(temp, n = 4)) |
+                          is.na(lag(temp, n = 5)) ~ NA_real_,
                           TRUE ~ 0)
         )
 
 sum(data$QCP3, na.rm = T)</code></pre>
 <pre><code>## [1] 47</code></pre>
-<pre class="r"><code># Question: with this solution the first values of the series are not marked NA in QCP3. Is that a problem? </code></pre>
+<pre class="r"><code># note: with this implementation any hour period containing at least 1 NA value will cause an NA in QCP3. However the analysed time series does not contain NA values, therfore it does not make a difference here.</code></pre>
 <p><strong>Task</strong>: Code in this section should analyse the persistence.</p>
-<p><em>Results:</em> The time series contains 47 periods of continuos 10 minute intervals with the same value.</p>
+<p><em>Results:</em> The time series contains 47 periods of 6 continuous 10-minute intervals with the same value.</p>
 </div>
-<div id="light-intensity" class="section level3">
-<h3>1.4 Light intensity</h3>
+<div id="light-intensity---qcp4" class="section level3">
+<h3>1.4 Light intensity - QCP4</h3>
+<p>QCP4 requires all values that were measured while the sensor was in sunshine or bright sunshine to be flagged.</p>
 <pre class="r"><code># classify data points by light intensity and period of the day (day/night)
 data &lt;- data %&gt;% 
   mutate(SIC = case_when(
@@ -325,17 +333,24 @@ data %&gt;%
 <pre class="r"><code># compare combinations of failures
 data %&gt;%
   count(QCP1,QCP2,QCP3,QCP4)</code></pre>
-<pre><code>## # A tibble: 6 x 5
+<pre><code>## # A tibble: 7 x 5
 ##    QCP1  QCP2  QCP3  QCP4     n
 ##   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;int&gt;
-## 1     0     0     0     0  3662
+## 1     0     0     0     0  3658
 ## 2     0     0     0     1    90
 ## 3     0     0     1     0    47
-## 4     0     1     0     0    50
-## 5     0     1     0     1   182
-## 6     0    NA     0     0     1</code></pre>
+## 4     0     0    NA     0     4
+## 5     0     1     0     0    50
+## 6     0     1     0     1   182
+## 7     0    NA    NA     0     1</code></pre>
+<pre class="r"><code># calculate sums of failures
+data %&gt;% 
+  select(QCP1:QCP4) %&gt;% 
+  colSums(na.rm = T)</code></pre>
+<pre><code>## QCP1 QCP2 QCP3 QCP4 
+##    0  232   47  272</code></pre>
 <p><strong>Task</strong>: Present a table or graph to show how many data points fail during the four specific QCPs. Discuss shortly the reasons for failure and compare the different QCPs against each other.</p>
-<p><strong>Answer</strong>: The above output shows, that 3662 10-min observations pass all 4 criteria. QCP1 was always passed, which was to be expected as the sensor only recorded values within its measurement range. QCP2 failed 232 times. QCP3 only failed 47 times. QCP4 failed 272 times, which is to be explained by the sensors position on a south facing wall.</p>
+<p><strong>Answer</strong>: The above output shows, that 3658 10-min observations pass all 4 criteria. QCP1 was always passed, which was to be expected as the sensor only recorded values within its measurement range. QCP2 failed 232 times. QCP3 only failed 47 times. QCP4 failed 272 times, which is to be explained by the sensors position on a south facing wall. This is also mirrored in the QCP2 flags. 182 data points failed both QCP2 and QCP4, which is plausible as sudden changes in cloud cover and sunshine could lead to bigger changes in measured temperature. However later on it might be interesting to further investigate the nature of the 50 QCP2 flags that did not coincide with QCP4 flags. Over the entire time series only 5 values are flagged NA.</p>
 </div>
 <div id="results" class="section level2">
 <h2>3. Results</h2>
@@ -353,11 +368,11 @@ head(qc_df,100)</code></pre>
 <pre><code>## # A tibble: 100 x 9
 ##       id dttm                 temp   lux  QCP1  QCP2  QCP3  QCP4 QCP_cum
 ##    &lt;dbl&gt; &lt;dttm&gt;              &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;   &lt;dbl&gt;
-##  1     1 2021-12-13 00:00:00  6.06     0     0    NA     0     0      NA
-##  2     2 2021-12-13 00:10:00  5.96     0     0     0     0     0       0
-##  3     3 2021-12-13 00:20:00  5.96     0     0     0     0     0       0
-##  4     4 2021-12-13 00:30:00  5.86     0     0     0     0     0       0
-##  5     5 2021-12-13 00:40:00  5.86     0     0     0     0     0       0
+##  1     1 2021-12-13 00:00:00  6.06     0     0    NA    NA     0      NA
+##  2     2 2021-12-13 00:10:00  5.96     0     0     0    NA     0      NA
+##  3     3 2021-12-13 00:20:00  5.96     0     0     0    NA     0      NA
+##  4     4 2021-12-13 00:30:00  5.86     0     0     0    NA     0      NA
+##  5     5 2021-12-13 00:40:00  5.86     0     0     0    NA     0      NA
 ##  6     6 2021-12-13 00:50:00  5.86     0     0     0     0     0       0
 ##  7     7 2021-12-13 01:00:00  5.86     0     0     0     0     0       0
 ##  8     8 2021-12-13 01:10:00  5.86     0     0     0     0     0       0
@@ -375,7 +390,7 @@ qc_df &lt;- qc_df %&gt;%
 # aggregate qc_df to hourly values (condition: not more than 1 QCP_cum failure per hour)
 hobo_hourly &lt;- qc_df %&gt;% 
             group_by(day_hour) %&gt;% 
-            summarise(temp = if_else(sum(QCP_cum, na.rm = T) &lt;= 1, true = mean(temp), false = NULL)) %&gt;% 
+            summarise(temp = if_else(sum(QCP_cum, na.rm = T) &lt;= 1, true = round(mean(temp), 4), false = NULL)) %&gt;% 
             rename(dttm = day_hour)
 
 head(hobo_hourly, 50)</code></pre>

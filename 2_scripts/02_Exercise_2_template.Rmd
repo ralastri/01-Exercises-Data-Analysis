@@ -1,7 +1,7 @@
 ---
 title: 'Exercise #2'
 author: "Raffaello Lastrico"
-date: "date of submission"
+date: "14.01.2022"
 output:
   html_document: default
   pdf_document: default
@@ -9,11 +9,6 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-# more internal settings can go here
-# Consider help pages like:
-# https://rmarkdown.rstudio.com/lesson-1.html
-# https://www.rstudio.com/wp-content/uploads/2015/03/rmarkdown-reference.pdf
-
 ```
 
 ### Data
@@ -34,6 +29,7 @@ library(hms)
 ### Preprocessing / R functions
 
 ```{r preprocessing_or_functions, message=FALSE, warning=FALSE}
+# define function for use in QCP 4
 QCP4 <- function(x, threshold){
     if(max(x, na.rm = T) >= threshold){
         return(1)
@@ -52,38 +48,41 @@ data <- read_csv(file = "https://raw.githubusercontent.com/data-hydenv/data/mast
 head(data)
 ```
 
-### 1.1 Measurement range (Plausible values)
+### 1.1 Measurement range (Plausible values) - QCP1
+
+For QCP1 all measurements outside the sensor range will be flagged.
 
 **HOBO Specifications:**
 Temperature: -20° to 70° C  -  Light intensity: 0 to 320000 lux
 
 ```{r qcp1, eval = TRUE}
-# Flag values outside the ranges with 1, those within with 0 
+# flag values outside the ranges with 1, those within with 0 
 data <- data %>% 
   mutate(QCP1 = case_when(temp <= 70 & temp >= -20 & lux <= 320000 & lux >= 0 ~ 0,
                           TRUE ~ 1)
         )
 
+# calculate sum of QCP1
 sum(data$QCP1)
-
 ```
 
 **Question**: How many data points are outside the measurement range?
 
 **Answer**: There are 0 data points outside the measurement range of both temperature and light intensity.
 
-### 1.2 Plausible rate of change
+### 1.2 Plausible rate of change - QCP2
+
+For QCP2 all data points with more than 1 °K change to the previous measurement are flagged. 
 
 ```{r qcp2, eval=T}
-# Calculate diference in temperature und flag those > 1° C
+# calculate difference in temperature and flag those > 1° C
 data <- data %>% 
-  #head() %>% 
   mutate(var1 = temp - lag(x = temp), 
          QCP2 = if_else(abs(var1) > 1, true = 1, false = 0)
          ) %>% 
   select(-var1)
 
-# Summarise time and count information for QCP2 classification
+# summarise time and count information for QCP2 classification
 data %>% 
   mutate(daytime = strftime(dttm, format="%H:%M:%S")) %>% 
   group_by(QCP2) %>% 
@@ -96,25 +95,32 @@ data %>%
 
 ### 1.3 Minimum variability (Persistence)
 
+To pass QCP3 a data point and its 5 previous measurements cannot have the same value. I.e. in any hour period there must be at least two different values measured.
+
 ```{r qcp3}
-# code for qcp3 here
+# classify values by QCP3 
 data <- data %>%
   mutate(QCP3 = case_when(temp == lag(temp, n = 1) & temp == lag(temp, n = 2) & 
                           temp == lag(temp, n = 3) & temp == lag(temp, n = 4) &
                           temp == lag(temp, n = 5) ~ 1,
+                          is.na(lag(temp, n = 1)) | is.na(lag(temp, n = 2)) | 
+                          is.na(lag(temp, n = 3)) | is.na(lag(temp, n = 4)) |
+                          is.na(lag(temp, n = 5)) ~ NA_real_,
                           TRUE ~ 0)
         )
 
 sum(data$QCP3, na.rm = T)
 
-# Question: with this solution the first values of the series are not marked NA in QCP3. Is that a problem? 
+# note: with this implementation any hour period containing at least 1 NA value will cause an NA in QCP3. However the analysed time series does not contain NA values, therfore it does not make a difference here.
 ```
 
 **Task**: Code in this section should analyse the persistence.
 
-*Results:* The time series contains 47 periods of continuos 10 minute intervals with the same value.
+*Results:* The time series contains 47 periods of 6 continuous 10-minute intervals with the same value.
 
 ### 1.4 Light intensity
+
+QCP4 requires all values that were measured while the sensor was in sunshine or bright sunshine to be flagged. 
 
 ```{r qcp4}
 # classify data points by light intensity and period of the day (day/night)
@@ -173,11 +179,19 @@ data %>%
 data %>%
   count(QCP1,QCP2,QCP3,QCP4)
 
+# calculate sums of failures
+data %>% 
+  select(QCP1:QCP4) %>% 
+  colSums(na.rm = T)
+
+
 ```
 
 **Task**: Present a table or graph to show how many data points fail during the four specific QCPs. Discuss shortly the reasons for failure and compare the different QCPs against each other.
 
-**Answer**: The above output shows, that 3662 10-min observations pass all 4 criteria. QCP1 was always passed, which was to be expected as the sensor only recorded values within its measurement range. QCP2 failed 232 times. QCP3 only failed 47 times. QCP4 failed 272 times, which is to be explained by the sensors position on a south facing wall.
+**Answer**: The above output shows, that 3658 10-min observations pass all 4 criteria. QCP1 was always passed, which was to be expected as the sensor only recorded values within its measurement range. QCP2 failed 232 times. QCP3 only failed 47 times. QCP4 failed 272 times, which is to be explained by the sensors position on a south facing wall. 
+This is also mirrored in the QCP2 flags. 182 data points failed both QCP2 and QCP4, which is plausible as sudden changes in cloud cover and sunshine could lead to bigger changes in measured temperature. However later on it might be interesting to further investigate the nature of the 50 QCP2 flags that did not coincide with QCP4 flags.
+Over the entire time series only 5 values are flagged NA. 
 
 ## 3. Results
 
